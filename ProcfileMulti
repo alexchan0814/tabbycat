@@ -10,3 +10,6 @@ wsgi: gunicorn wsgi:application --config './config/gunicorn.conf'
 
 # ASGI server handles the asychronous routes (websockets)
 asgi: python ./tabbycat/run-asgi.py
+
+# Celery worker handles async tasks
+celery: celery -A tabbycat worker -l info
