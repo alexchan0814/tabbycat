@@ -99,18 +99,18 @@ CHANNEL_LAYERS = {
 }
 
 # ==============================================================================
-# SendGrid
+# Email / SendGrid
 # ==============================================================================
 
-if environ.get('SENDGRID_USERNAME', ''):
-    SERVER_EMAIL = environ['SENDGRID_USERNAME']
-    DEFAULT_FROM_EMAIL = environ.get('DEFAULT_FROM_EMAIL', environ['SENDGRID_USERNAME'])
-    EMAIL_HOST = 'smtp.sendgrid.net'
-    EMAIL_HOST_USER = environ['SENDGRID_USERNAME']
-    EMAIL_HOST_PASSWORD = environ['SENDGRID_PASSWORD']
-    EMAIL_PORT = 587
-    EMAIL_USE_TLS = True
-
+if environ.get('EMAIL_HOST', ''):
+    SERVER_EMAIL = environ['DEFAULT_FROM_EMAIL']
+    DEFAULT_FROM_EMAIL = environ['DEFAULT_FROM_EMAIL']
+    EMAIL_HOST = environ['EMAIL_HOST']
+    EMAIL_HOST_USER = environ['EMAIL_HOST_USER']
+    EMAIL_HOST_PASSWORD = environ['EMAIL_HOST_PASSWORD']
+    EMAIL_PORT = int(environ.get('EMAIL_PORT', 587))
+    EMAIL_USE_TLS = bool(environ.get('EMAIL_USE_TLS', True))
+elif environ.get('SENDGRID_USERNAME', ''):
 # ==============================================================================
 # Sentry
 # ==============================================================================
