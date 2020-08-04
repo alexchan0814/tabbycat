@@ -110,7 +110,7 @@ if environ.get('EMAIL_HOST', ''):
     EMAIL_HOST_PASSWORD = environ['EMAIL_HOST_PASSWORD']
     EMAIL_PORT = int(environ.get('EMAIL_PORT', 587))
     EMAIL_USE_TLS = bool(environ.get('EMAIL_USE_TLS', True))
-elif environ.get('SENDGRID_USERNAME', ''):
+
 # ==============================================================================
 # Sentry
 # ==============================================================================
