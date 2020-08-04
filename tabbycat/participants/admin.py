@@ -1,14 +1,14 @@
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
-from django.utils.translation import ngettext
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _, ngettext, ngettext_lazy
 
-from draw.models import TeamSideAllocation
 from adjallocation.models import (AdjudicatorAdjudicatorConflict, AdjudicatorInstitutionConflict,
                                   AdjudicatorTeamConflict, TeamInstitutionConflict)
-from adjfeedback.models import AdjudicatorTestScoreHistory
+from adjfeedback.models import AdjudicatorBaseScoreHistory
+from availability.admin import RoundAvailabilityInline
 from breakqual.models import BreakCategory
+from draw.models import TeamSideAllocation
 from tournaments.models import Tournament
 from venues.admin import VenueConstraintInline
 
@@ -43,9 +43,10 @@ class InstitutionAdmin(admin.ModelAdmin):
 
 @admin.register(Speaker)
 class SpeakerAdmin(admin.ModelAdmin):
-    list_filter = ('team__tournament',)
+    list_filter = ('team__tournament', 'team__institution')
     list_display = ('name', 'team', 'gender')
-    search_fields = ('name', )
+    search_fields = ('name', 'team__short_name', 'team__long_name',
+                     'team__institution__name', 'team__institution__code')
     raw_id_fields = ('team', )
 
 
@@ -91,7 +92,7 @@ class TeamForm(forms.ModelForm):
             if bc.tournament != tournament:
                 self.add_error('break_categories', ValidationError(
                     _("The team can't be in a break category of a different tournament. Please remove: %(category)s"),
-                    code='invalid_break_category', params={'category': str(bc)}
+                    code='invalid_break_category', params={'category': str(bc)},
                 ))
         return categories
 
@@ -115,13 +116,13 @@ class AdjudicatorTeamConflictInline(admin.TabularInline):
 class TeamAdmin(admin.ModelAdmin):
     form = TeamForm
     list_display = ('long_name', 'short_name', 'emoji', 'institution',
-                    'division', 'tournament')
+                    'tournament')
     search_fields = ('reference', 'short_name', 'institution__name',
                      'institution__code', 'tournament__name')
-    list_filter = ('tournament', 'division', 'institution', 'break_categories')
+    list_filter = ('tournament', 'institution', 'break_categories')
     inlines = (SpeakerInline, TeamSideAllocationInline, VenueConstraintInline,
-               AdjudicatorTeamConflictInline, TeamInstitutionConflictInline)
-    raw_id_fields = ('division', )
+               AdjudicatorTeamConflictInline, TeamInstitutionConflictInline,
+               RoundAvailabilityInline)
     actions = ['delete_url_key']
 
     def get_queryset(self, request):
@@ -130,7 +131,7 @@ class TeamAdmin(admin.ModelAdmin):
 
     def formfield_for_choice_field(self, db_field, request, **kwargs):
         if db_field.name == 'emoji' and kwargs.get("initial") is None:
-            kwargs["initial"] = pick_unused_emoji()
+            kwargs["initial"] = pick_unused_emoji()[0]
         return super().formfield_for_choice_field(db_field, request, **kwargs)
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
@@ -143,7 +144,10 @@ class TeamAdmin(admin.ModelAdmin):
         team_speakers = [team.speaker_set.all() for team in queryset]
         for speakers in team_speakers:
             speakers.update(url_key=None)
-        message = _("%(count)d team's speakers had their URL key removed.") % {'count': len(team_speakers)}
+        message = ngettext_lazy(
+            "%(count)d speaker had their URL key removed.",
+            "%(count)d speakers had their URL keys removed.",
+            len(team_speakers)) % {'count': len(team_speakers)}
         self.message_user(request, message)
     delete_url_key.short_description = _("Delete URL key")
 
@@ -164,8 +168,8 @@ class AdjudicatorInstitutionConflictInline(admin.TabularInline):
     extra = 1
 
 
-class AdjudicatorTestScoreHistoryInline(admin.TabularInline):
-    model = AdjudicatorTestScoreHistory
+class AdjudicatorBaseScoreHistoryInline(admin.TabularInline):
+    model = AdjudicatorBaseScoreHistory
     extra = 1
 
 
@@ -183,12 +187,13 @@ class AdjudicatorForm(forms.ModelForm):
 class AdjudicatorAdmin(admin.ModelAdmin):
     form = AdjudicatorForm
     list_display = ('name', 'institution', 'tournament', 'trainee',
-                    'independent', 'adj_core', 'gender', 'test_score')
+                    'independent', 'adj_core', 'gender', 'base_score')
     search_fields = ('name', 'tournament__name', 'institution__name', 'institution__code')
-    list_filter = ('tournament', 'name', 'institution')
-    list_editable = ('independent', 'adj_core', 'trainee', 'test_score')
+    list_filter = ('tournament', 'institution')
+    list_editable = ('independent', 'adj_core', 'trainee', 'base_score')
     inlines = (AdjudicatorTeamConflictInline, AdjudicatorInstitutionConflictInline,
-               AdjudicatorAdjudicatorConflictInline, AdjudicatorTestScoreHistoryInline)
+               AdjudicatorAdjudicatorConflictInline, AdjudicatorBaseScoreHistoryInline,
+               RoundAvailabilityInline)
     actions = ['delete_url_key']
 
     def get_queryset(self, request):
@@ -200,7 +205,7 @@ class AdjudicatorAdmin(admin.ModelAdmin):
         message = ngettext(
             "%(count)d adjudicator had their URL key removed.",
             "%(count)d adjudicators had their URL keys removed.",
-            updated
+            updated,
         ) % {'count': updated}
         self.message_user(request, message)
     delete_url_key.short_description = _("Delete URL key")

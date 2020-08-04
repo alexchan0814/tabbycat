@@ -7,23 +7,22 @@
   </a>
   <div class="btn-group">
     <a class="btn btn-outline-primary"
-       href="{% tournamenturl 'printing-urls' %}" target="_blank">
-      {% trans "Print URLs" %}
+       href="{% tournamenturl 'printing-urls-teams' %}" target="_blank">
+      {% trans "Print Teams' URLs" %}
+    </a>
+    <a class="btn btn-outline-primary"
+       href="{% tournamenturl 'printing-urls-adjudicators' %}" target="_blank">
+      {% trans "Print Adjudicators' URLs" %}
     </a>
   </div>
   <div class="btn-group">
     {% if to_email_exists %}
-    <form action="{% tournamenturl 'privateurls-email' %}" method="POST">
-      {% csrf_token %}
-      <button class="btn btn-outline-primary" id="emailUrls" type="submit">
-        {% trans "Email URLs" %}
-      </button>
-    </form>
+      <a href="{% tournamenturl 'privateurls-email' %}" class="btn btn-outline-primary">
     {% else %}
-      <button class="btn btn-outline-secondary" id="emailUrls" type="submit" data-toggle="tooltip" title="{% trans "All reachable participants have already been sent their private URLs." %}">
-        {% trans "Email URLs" %}
-      </button>
+      <a href="{% tournamenturl 'privateurls-email' %}" class="btn btn-outline-secondary" data-toggle="tooltip" title="{% trans "All reachable participants have already been sent their private URLs." %}">
     {% endif %}
+      {% trans "Email URLs" %}
+    </a>
   </div>
   {% if blank_exists %}
     <div class="btn-group">

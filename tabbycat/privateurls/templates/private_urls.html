@@ -1,8 +1,8 @@
 {% extends "tables/base_vue_table.html" %}
 {% load debate_tags i18n %}
 
-{% block head-title %}<span class="emoji">🎲</span> Private URLs{% endblock %}
-{% block page-title %}Private URLs{% endblock %}
+{% block head-title %}<span class="emoji">🎲</span> {% trans "Private URLs" %}{% endblock %}
+{% block page-title %}{% trans "Private URLs" %}{% endblock %}
 
 {% block page-subnav-sections %}
   {% include 'private_urls_nav.html' %}
@@ -40,7 +40,7 @@
 
   </div>
 
-  {% if pref.participant_ballots != 'private-urls' and pref.participant_feedback != 'private-urls' and not pref.public_checkins_submit and not pref.allocation_confirmations %}
+  {% if pref.participant_ballots != 'private-urls' and pref.participant_feedback != 'private-urls' and not pref.public_checkins_submit %}
     <div class="card border-warning text-warning mb-3">
       <div class="card-body">
         {% tournamenturl 'options-tournament-section' section='data_entry' as data_entry_options_url %}

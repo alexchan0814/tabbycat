@@ -1,6 +1,6 @@
-from unittest import TestCase
+from django.test import TestCase
 
-from ..liveness import liveness_bp, liveness_twoteam
+from ..liveness import get_bp_coefficients, liveness_bp, liveness_twoteam
 
 
 class TestLiveness(TestCase):
@@ -21,13 +21,13 @@ class TestLiveness(TestCase):
 
     def test_case_australs_2017_esl_penultimate(self):
         # Note 2 teams bypassed ESL break; 8 eligible
-        safe, dead = liveness_twoteam(False, 7, 4, 79, 8, [5,4,3,3,1,1])
+        safe, dead = liveness_twoteam(False, 7, 4, 79, 8, [5, 4, 3, 3, 1, 1])
         self.assertGreaterEqual(safe, 4) # All on 4 broke
         self.assertLessEqual(dead, 0) # Some (all?) on 3 broke
 
     def test_case_australs_2017_esl(self):
         # Note 2 teams bypassed ESL break; 8 eligible
-        safe, dead = liveness_twoteam(False, 8, 4, 79, 8, [5,4,3,3,1,1])
+        safe, dead = liveness_twoteam(False, 8, 4, 79, 8, [5, 4, 3, 3, 1, 1])
         self.assertGreaterEqual(safe, 3) # All on 4 broke
         self.assertLessEqual(dead, 1) # Some (all?) on 3 broke
 
@@ -49,7 +49,7 @@ class TestLiveness(TestCase):
     def test_case_australs_2016_esl(self):
         # Note 2 teams bypassed ESL break
         # Worst case (-1 on finishing scores)
-        safe, dead = liveness_twoteam(False, 8, 4, 74, 8, [6,5,3,3,3,1])
+        safe, dead = liveness_twoteam(False, 8, 4, 74, 8, [6, 5, 3, 3, 3, 1])
         self.assertGreaterEqual(safe, 5)
         self.assertLessEqual(dead, 1)
 
@@ -105,9 +105,22 @@ class TestLiveness(TestCase):
         self.assertLessEqual(dead, 5) # Some teams on 9 will break (best case)
 
     def test_case_abp_2017_efl(self):
-        safe, dead = liveness_bp(False, 6, 8, 21, 6, [10,9,9,8,7,7,7,6,6])
+        safe, dead = liveness_bp(False, 6, 8, 21, 6, [10, 9, 9, 8, 7, 7, 7, 6, 6])
         self.assertGreaterEqual(safe, 8) # All teams on 8 broke
         self.assertLessEqual(dead, 3) # Some teams on 7 broke
+
+    def test_bp_coefficients(self):
+        data = {
+            0: [1],
+            1: [1, 1, 1, 1],
+            2: [1, 2, 3, 4, 3, 2, 1],
+            10: [1, 10, 55, 220, 705, 1902, 4455, 9240, 17205, 29050, 44803, 63460, 82885, 100110, 112035, 116304, 112035, 100110, 82885, 63460, 44803, 29050, 17205, 9240, 4455, 1902, 705, 220, 55, 10, 1],  # noqa: E501
+        }
+
+        for nrounds, coeffs in data.items():
+            with self.subTest(row=nrounds):
+                calc_coeffs = get_bp_coefficients(nrounds)
+                self.assertListEqual(coeffs, calc_coeffs)
 
     # WUDC
 

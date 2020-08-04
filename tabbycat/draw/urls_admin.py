@@ -28,16 +28,18 @@ urlpatterns = [
             views.DrawRegenerateView.as_view(),
             name='draw-regenerate'),
 
+        # Email
+        path('email-adjudicators',
+            views.EmailAdjudicatorAssignmentsView.as_view(),
+            name='draw-adj-email'),
+        path('email-debaters',
+            views.EmailTeamAssignmentsView.as_view(),
+            name='draw-team-email'),
+
         # Side and Matchup Editing
-        path('matchups/edit/',
-            views.EditMatchupsView.as_view(),
-            name='draw-matchups-edit'),
-        path('matchups/save/',
-            views.SaveDrawMatchupsView.as_view(),
-            name='save-debate-teams'),
-        path('sides/save/',
-            views.SaveDebateSidesStatusView.as_view(),
-            name='save-debate-sides-status'),
+        path('edit/',
+            views.EditDebateTeamsView.as_view(),
+            name='edit-debate-teams'),
 
         # Display
         path('display/',
@@ -57,15 +59,6 @@ urlpatterns = [
             name='draw-unrelease'),
 
         # Scheduling
-        path('schedule/',
-            views.ScheduleDebatesView.as_view(),
-            name='draw-schedule-debates'),
-        path('schedule/save/',
-            views.ApplyDebateScheduleView.as_view(),
-            name='draw-schedule-apply'),
-        path('confirms/',
-            views.ScheduleConfirmationsView.as_view(),
-            name='draw-schedule-confirmations'),
         path('start-time/set/',
             views.SetRoundStartTimeView.as_view(),
             name='draw-start-time-set'),
@@ -81,5 +74,4 @@ urlpatterns = [
     path('sides/',
         views.SideAllocationsView.as_view(),
         name='draw-side-allocations'),
-
 ]

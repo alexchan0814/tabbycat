@@ -1,9 +1,10 @@
 import logging
+from secrets import SystemRandom
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import formats, timezone, translation
-from django.shortcuts import redirect
-
 from ipware.ip import get_real_ip
 
 logger = logging.getLogger(__name__)
@@ -50,3 +51,32 @@ def badge_datetime_format(timestamp):
 
     localized_time = timezone.localtime(timestamp)
     return formats.date_format(localized_time, format=fmt)
+
+
+def ranks_dictionary(tournament, score_min, score_max):
+    """ Used for both adjudicator ranks and venue priorities """
+    score_range = score_max - score_min
+    return [
+        {'pk': 'a+', 'fields': {'name': 'A+', 'cutoff': (score_range * 0.9) + score_min}},
+        {'pk': 'a',  'fields': {'name': 'A', 'cutoff': (score_range * 0.8) + score_min}},
+        {'pk': 'a-', 'fields': {'name': 'A-', 'cutoff': (score_range * 0.7) + score_min}},
+        {'pk': 'b+', 'fields': {'name': 'B+', 'cutoff': (score_range * 0.6) + score_min}},
+        {'pk': 'b',  'fields': {'name': 'B', 'cutoff': (score_range * 0.5) + score_min}},
+        {'pk': 'b-', 'fields': {'name': 'B-', 'cutoff': (score_range * 0.4) + score_min}},
+        {'pk': 'c+', 'fields': {'name': 'C+', 'cutoff': (score_range * 0.3) + score_min}},
+        {'pk': 'c',  'fields': {'name': 'C', 'cutoff': (score_range * 0.2) + score_min}},
+        {'pk': 'f',  'fields': {'name': 'F', 'cutoff': score_min}},
+    ]
+
+
+def generate_identifier_string(charset, length):
+    """Used in privateurl/checkin identifier generation"""
+    return ''.join(SystemRandom().choice(charset) for _ in range(length))
+
+
+def add_query_string_parameter(url, key, value):
+    scheme, netloc, path, params, query, fragment = urlparse(url)
+    query_parts = parse_qs(query)
+    query_parts[key] = value
+    query = urlencode(query_parts, safe='/')
+    return urlunparse((scheme, netloc, path, params, query, fragment))

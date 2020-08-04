@@ -14,20 +14,17 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 ADMINS = ('Philip and Chuan-Zheng', 'tabbycat@philipbelesky.com'),
 MANAGERS = ADMINS
 DEBUG = bool(int(os.environ['DEBUG'])) if 'DEBUG' in os.environ else False
-ENABLE_DEBUG_TOOLBAR = False # Must default to false
-DISABLE_SENTRY = True # Must default to false
+ENABLE_DEBUG_TOOLBAR = False # Must default to false; overriden in Dev config
+DISABLE_SENTRY = True # Overriden in Heroku config
 SECRET_KEY = r'#2q43u&tp4((4&m3i8v%w-6z6pp7m(v0-6@w@i!j5n)n15epwc'
-
-# Hide league-related configuration options unless explicitly enabled
-LEAGUE = bool(int(os.environ['LEAGUE'])) if 'LEAGUE' in os.environ else False
 
 # ==============================================================================
 # Version
 # ==============================================================================
 
-TABBYCAT_VERSION = '2.3.0a'
-TABBYCAT_CODENAME = 'LaPerm'
-READTHEDOCS_VERSION = 'v2.3.0'
+TABBYCAT_VERSION = '2.4.5'
+TABBYCAT_CODENAME = 'Manx'
+READTHEDOCS_VERSION = 'v2.4.5'
 
 # ==============================================================================
 # Internationalization and Localization
@@ -44,13 +41,31 @@ LOCALE_PATHS = [
 ]
 
 # Languages that should be available in the switcher
+EXTRA_LANG_INFO = {
+    'ms': {
+        'bidi': False,
+        'code': 'ms',
+        'name': 'Malay',
+        'name_local': 'Bahasa Melayu', #unicode codepoints here
+    },
+}
+
+# Add custom languages not provided by Django
+import django.conf.locale
+LANG_INFO = dict(django.conf.locale.LANG_INFO, **EXTRA_LANG_INFO)
+django.conf.locale.LANG_INFO = LANG_INFO
+
 LANGUAGES = [
     ('ar', _('Arabic')),
+    ('bn', _('Bengali')),
     ('en', _('English')),
     ('es', _('Spanish')),
     ('fr', _('French')),
     ('ja', _('Japanese')),
+    ('ms', _('Malay')),
     ('pt', _('Portuguese')),
+    ('ru', _('Russian')),
+    ('zh-hans', _('Simplified Chinese')),
 ]
 
 STATICI18N_ROOT = os.path.join(BASE_DIR, "locale")
@@ -78,17 +93,18 @@ MIDDLEWARE = [
     # Must be after SessionMiddleware
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'utils.middleware.DebateMiddleware'
+    'utils.middleware.DebateMiddleware',
 ]
 
 TABBYCAT_APPS = (
     'actionlog',
     'adjallocation',
     'adjfeedback',
+    'api',
     'availability',
     'breakqual',
     'checkins',
-    'divisions',
+    'divisions', # obsolete
     'draw',
     'motions',
     'options',
@@ -102,7 +118,7 @@ TABBYCAT_APPS = (
     'users',
     'standings',
     'notifications',
-    'importer'
+    'importer',
 )
 
 INSTALLED_APPS = (
@@ -112,7 +128,6 @@ INSTALLED_APPS = (
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'channels', # For Websockets / real-time connections (above whitenoise)
-    'raven.contrib.django.raven_compat',  # Client for Sentry error tracking
     'django.contrib.staticfiles',
     'django.contrib.humanize',
     'django_summernote',  # Keep above our apps; as we unregister an admin model
@@ -122,12 +137,16 @@ INSTALLED_APPS = (
     'django_extensions',  # For Secret Generation Command
     'gfklookupwidget',
     'formtools',
-    'statici18n' # Compile js translations as static file; saving requests
+    'statici18n', # Compile js translations as static file; saving requests
+    'polymorphic',
+    'rest_framework',
+    'rest_framework.authtoken',
 )
 
 ROOT_URLCONF = 'urls'
 LOGIN_REDIRECT_URL = '/'
 FIXTURE_DIRS = (os.path.join(os.path.dirname(BASE_DIR), 'data', 'fixtures'), )
+SILENCED_SYSTEM_CHECKS = ('urls.W002',)
 
 # ==============================================================================
 # Templates
@@ -148,16 +167,16 @@ TEMPLATES = [
                 'django.template.context_processors.tz',
                 'django.template.context_processors.request',  # for Jet
                 'utils.context_processors.debate_context',  # for tournament config vars
-                'django.template.context_processors.i18n'  # for serving static language translations
+                'django.template.context_processors.i18n'  # for serving static language translations,
             ],
             'loaders': [
                 ('django.template.loaders.cached.Loader', [
                     'django.template.loaders.filesystem.Loader',
                     'django.template.loaders.app_directories.Loader',
                 ]),
-            ]
+            ],
         }
-    }
+    },
 ]
 
 # ==============================================================================
@@ -172,7 +191,7 @@ TAB_PAGES_CACHE_TIMEOUT = int(os.environ.get('TAB_PAGES_CACHE_TIMEOUT', 60 * 120
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-    }
+    },
 }
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
@@ -207,24 +226,11 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'standard',
         },
-        'sentry': {
-            'level': 'WARNING',
-            'class': 'raven.contrib.django.raven_compat.handlers.SentryHandler',
-        },
     },
     'loggers': {
         'django': {
             'handlers': ['console'],
             'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
-        },
-        'django.request': {
-            'handlers': ['sentry'],
-            'level': 'ERROR',
-        },
-        'raven': {
-            'level': 'INFO',
-            'handlers': ['console'],
-            'propagate': False,
         },
         'sentry.errors': {
             'level': 'INFO',
@@ -241,7 +247,7 @@ LOGGING = {
 
 for app in TABBYCAT_APPS:
     LOGGING['loggers'][app] = {
-        'handlers': ['console', 'sentry'],
+        'handlers': ['console'],
         'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
     }
 
@@ -255,18 +261,19 @@ MESSAGE_TAGS = {messages.ERROR: 'danger', }
 # Summernote (WYSWIG)
 # ==============================================================================
 
+SUMMERNOTE_THEME = 'bs4' # Bootstrap 4
+
 SUMMERNOTE_CONFIG = {
     'width': '100%',
     'height': '480',
     'toolbar': [
         ['style', ['bold', 'italic', 'underline', 'fontsize', 'color', 'clear']],
         ['para', ['ul', 'ol']],
-        ['insert', ['link', 'picture', 'video', 'hr']],
+        ['insert', ['link', 'picture']],
         ['misc', ['undo', 'redo', 'codeview']],
-        ['help', ['help']]
     ],
     'disable_upload': True,
-    'iframe': True, # When django-summernote supports Bootstrap4 change this
+    'iframe': True, # Necessary; if just to compartmentalise jQuery dependency,
 }
 
 # ==============================================================================
@@ -276,7 +283,7 @@ SUMMERNOTE_CONFIG = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-    }
+    },
 }
 
 # ==============================================================================
@@ -289,4 +296,29 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels.layers.InMemoryChannelLayer",
     },
+}
+
+# ==============================================================================
+# Dynamic preferences
+# ==============================================================================
+
+DYNAMIC_PREFERENCES = {
+    'REGISTRY_MODULE': 'preferences',
+}
+
+# ==============================================================================
+# REST Framework
+# ==============================================================================
+
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
 }

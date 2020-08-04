@@ -3,32 +3,29 @@ import logging
 from collections import OrderedDict
 from threading import Lock
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
-
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import authenticate, get_user_model, login
-from django.urls import reverse_lazy
-from django.db.models import Q
-from django.db.models.expressions import RawSQL
+from django.contrib.auth import get_user_model, login
+from django.db.models import Count, Q
 from django.shortcuts import redirect, resolve_url
-from django.utils.http import is_safe_url
+from django.urls import reverse_lazy
 from django.utils.html import format_html_join
+from django.utils.http import is_safe_url
 from django.utils.translation import gettext_lazy as _
 from django.views.generic.base import TemplateView
 from django.views.generic.edit import CreateView, FormView, UpdateView
+from django.views.generic.list import ListView
 
 from actionlog.mixins import LogActionMixin
 from actionlog.models import ActionLogEntry
 from draw.models import Debate
-from notifications.models import SentMessageRecord
+from notifications.models import BulkNotification
 from results.models import BallotSubmission
 from tournaments.models import Round
 from utils.forms import SuperuserCreationForm
 from utils.misc import redirect_round, redirect_tournament, reverse_round, reverse_tournament
 from utils.mixins import AdministratorMixin, AssistantMixin, CacheMixin, TabbycatPageTitlesMixin, WarnAboutDatabaseUseMixin
-from utils.views import BadJsonRequestError, JsonDataResponsePostView, PostOnlyRedirectView
+from utils.views import PostOnlyRedirectView
 
 from .forms import (SetCurrentRoundMultipleBreakCategoriesForm,
                     SetCurrentRoundSingleBreakCategoryForm, TournamentConfigureForm,
@@ -58,8 +55,15 @@ class PublicSiteIndexView(WarnAboutDatabaseUseMixin, TemplateView):
             return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
-        kwargs['tournaments'] = Tournament.objects.all()
+        kwargs['tournaments'] = Tournament.objects.filter(active=True)
+        kwargs['has_inactive'] = Tournament.objects.filter(active=False).exists()
         return super().get_context_data(**kwargs)
+
+
+class PublicSiteInactiveTournamentsView(ListView):
+    template_name = 'site_inactive_tournaments.html'
+    queryset = Tournament.objects.filter(active=False)
+    allow_empty = False
 
 
 class TournamentPublicHomeView(CacheMixin, TournamentMixin, TemplateView):
@@ -117,21 +121,21 @@ class CompleteRoundCheckView(AdministratorMixin, RoundMixin, TemplateView):
     def get_context_data(self, **kwargs):
         prior_rounds_not_completed = self.tournament.round_set.filter(
             Q(break_category=self.round.break_category) | Q(break_category__isnull=True),
-            completed=False, seq__lt=self.round.seq
+            completed=False, seq__lt=self.round.seq,
         )
         kwargs['number_of_prior_rounds_not_completed'] = prior_rounds_not_completed.count()
         kwargs['prior_rounds_not_completed'] = format_html_join(
             ", ",
             "<a href=\"{}\" class=\"alert-link\">{}</a>",
             ((reverse_round('tournament-complete-round-check', r), r.name)
-                for r in prior_rounds_not_completed)
+                for r in prior_rounds_not_completed),
         )
 
         kwargs['num_unconfirmed'] = self.round.debate_set.filter(
             result_status__in=[Debate.STATUS_NONE, Debate.STATUS_DRAFT]).count()
         kwargs['increment_ok'] = kwargs['num_unconfirmed'] == 0
-        kwargs['emails_sent'] = SentMessageRecord.objects.filter(
-            tournament=self.tournament, round=self.round, event=SentMessageRecord.EVENT_TYPE_POINTS).exists()
+        kwargs['emails_sent'] = BulkNotification.objects.filter(
+            tournament=self.tournament, round=self.round, event=BulkNotification.EVENT_TYPE_POINTS).exists()
         return super().get_context_data(**kwargs)
 
 
@@ -187,22 +191,6 @@ class CompleteRoundView(RoundMixin, AdministratorMixin, LogActionMixin, PostOnly
             return redirect_round('availability-index', self.round.next)
 
 
-class SendStandingsEmailsView(RoundMixin, AdministratorMixin, PostOnlyRedirectView):
-
-    def post(self, request, *args, **kwargs):
-        url = request.build_absolute_uri(reverse_tournament('standings-public-teams-current', self.tournament))
-
-        async_to_sync(get_channel_layer().send)("notifications", {
-            "type": "email",
-            "message": "team_points",
-            "extra": {'url': url, 'round_id': self.round.id}
-        })
-
-        messages.success(request, _("Team point emails have been queued to be sent to the speakers."))
-
-        return redirect_round('tournament-complete-round-check', self.round)
-
-
 class BlankSiteStartView(FormView):
     """This view is presented to the user when there are no tournaments and no
     user accounts. It prompts the user to create a first superuser. It rejects
@@ -225,16 +213,15 @@ class BlankSiteStartView(FormView):
         with self.lock:
             if User.objects.exists():
                 logger.warning("Tried to post the blank-site-start view when a user account already exists.")
-                messages.error(request, "Whoops! It looks like someone's already created the first user account. Please log in.")
+                messages.error(request, _("Whoops! It looks like someone's already created the first user account. Please log in."))
                 return redirect('login')
 
             return super().post(request)
 
     def form_valid(self, form):
-        form.save()
-        user = authenticate(username=self.request.POST['username'], password=self.request.POST['password1'])
+        user = form.save()
         login(self.request, user)
-        messages.info(self.request, "Welcome! You've created an account for %s." % user.username)
+        messages.info(self.request, _("Welcome! You've created an account for %s.") % user.username)
 
         return super().form_valid(form)
 
@@ -293,7 +280,7 @@ class SetCurrentRoundView(AdministratorMixin, TournamentMixin, FormView):
     def get_redirect_to(self, use_default=True):
         redirect_to = self.request.POST.get(
             self.redirect_field_name,
-            self.request.GET.get(self.redirect_field_name, '')
+            self.request.GET.get(self.redirect_field_name, ''),
         )
         if not redirect_to and use_default:
             return reverse_tournament('tournament-admin-home', tournament=self.tournament)
@@ -329,11 +316,7 @@ class FixDebateTeamsView(AdministratorMixin, TournamentMixin, TemplateView):
 
     def get_incomplete_debates(self):
         annotations = {  # annotates with the number of DebateTeams on each side in the debate
-            side: RawSQL("""
-                SELECT DISTINCT COUNT('a')
-                FROM draw_debateteam
-                WHERE draw_debate.id = draw_debateteam.debate_id
-                AND draw_debateteam.side = %s""", (side,))
+            side: Count('debateteam', filter=Q(debateteam__side=side), distinct=True)
             for side in self.tournament.sides
         }
         debates = Debate.objects.filter(round__tournament=self.tournament)
@@ -374,48 +357,3 @@ class TournamentDonationsView(TournamentMixin, TemplateView):
 class StyleGuideView(TemplateView, TabbycatPageTitlesMixin):
     template_name = 'admin/style_guide.html'
     page_subtitle = 'Contextual sub title'
-
-
-# ==============================================================================
-# Base classes for other apps
-# ==============================================================================
-
-class BaseSaveDragAndDropDebateJsonView(AdministratorMixin, RoundMixin, LogActionMixin, JsonDataResponsePostView):
-    """For AJAX issued updates which post a Debate dictionary; which is then
-    modified and return back via a JSON response"""
-    allows_creation = False
-    required_json_fields = []
-
-    def modify_debate(self, debate, posted_debate):
-        """Modifies the Debate object `debate` using the information in the dict
-        `posted_debate`, and returns the modified debate.
-        Must be implemented by subclasses."""
-        raise NotImplementedError
-
-    def get_debate(self, id):
-        """Returns the debate with ID `id`. If the debate doesn't exist and
-        `self.allows_creation` is True, it creates a new debate (and saves it)
-        and returns it. If the debate doesn't exist and `self.allows_creation`
-        is False, it raises a BadJsonRequestError.
-        """
-        r = self.round
-        try:
-            return Debate.objects.get(round=r, pk=id)
-        except Debate.DoesNotExist:
-            if not self.allows_creation:
-                logger.exception("Debate with ID %d in round %s doesn't exist, and allows_creation was False", id, r)
-                raise BadJsonRequestError("Debate ID %d doesn't exist" % (id,))
-            logger.info("Debate with ID %d in round %s doesn't exist, creating new debate", id, r.name)
-            return Debate.objects.create(round=r)
-
-    def post_data(self):
-        try:
-            posted_debate = json.loads(self.body)
-        except ValueError:
-            logger.exception("Bad JSON provided for drag-and-drop edit")
-            raise BadJsonRequestError("Malformed JSON provided")
-
-        debate = self.get_debate(posted_debate['id'])
-        debate = self.modify_debate(debate, posted_debate)
-        self.log_action(content_object=debate)
-        return json.dumps(debate.serialize())

@@ -1,6 +1,7 @@
 import logging
 from itertools import combinations
 
+from django.contrib.humanize.templatetags.humanize import ordinal
 from django.db.models import Count
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
@@ -19,8 +20,6 @@ def get_status_meta(debate):
         return "circle", "text-info", 2, _("Ballot is Unconfirmed")
     elif debate.result_status == Debate.STATUS_CONFIRMED:
         return "check", "text-success", 3, _("Ballot is Confirmed")
-    elif debate.result_status == Debate.STATUS_POSTPONED:
-        return "pause", "", 4, _("Debate was Postponed")
     else:
         raise ValueError('Debate has no discernable status')
 
@@ -30,9 +29,9 @@ def readable_ballotsub_result(ballotsub):
 
     def format_dt(dt, t, use_codes):
         # Translators: e.g. "{Melbourne 1} as {OG}", "{Cape Town 1} as {CO}"
-        return _("%(team_name)s as %(side_abbr)s") % {
-            'team_name': dt.team.code_name if use_codes else dt.team.short_name,
-            'side_abbr': dt.get_side_abbr(t)
+        return _("%(team)s as %(side)s") % {
+            'team': dt.team.code_name if use_codes else dt.team.short_name,
+            'side': dt.get_side_abbr(t),
         }
 
     t = ballotsub.debate.round.tournament
@@ -71,7 +70,7 @@ def readable_ballotsub_result(ballotsub):
 
             result_winner = _("Advancing: %(advancing_list)s<br>\n")
             result_winner = result_winner % {
-                'advancing_list': ", ".join(format_dt(dt, t, use_codes) for dt in advancing)
+                'advancing_list': ", ".join(format_dt(dt, t, use_codes) for dt in advancing),
             }
             result = _("Eliminated: %(eliminated_list)s")
             result = result % {
@@ -158,18 +157,6 @@ def populate_identical_ballotsub_lists(ballotsubs):
         ballotsub.identical_ballotsub_versions.sort()
 
 
-_ORDINALS = {
-    1: gettext_lazy("1st"),
-    2: gettext_lazy("2nd"),
-    3: gettext_lazy("3rd"),
-    4: gettext_lazy("4th"),
-    5: gettext_lazy("5th"),
-    6: gettext_lazy("6th"),
-    7: gettext_lazy("7th"),
-    8: gettext_lazy("8th"),
-}
-
-
 _BP_POSITION_NAMES = [
     # Translators: Abbreviation for Prime Minister
     [gettext_lazy("PM"),
@@ -186,7 +173,7 @@ _BP_POSITION_NAMES = [
     # Translators: Abbreviation for Member for the Opposition
     [gettext_lazy("MO"),
     # Translators: Abbreviation for Opposition Whip
-     gettext_lazy("OW")]
+     gettext_lazy("OW")],
 ]
 
 
@@ -207,6 +194,6 @@ def side_and_position_names(tournament):
     else:
         for side in sides:
             positions = [_("Reply") if pos == tournament.reply_position
-                else _ORDINALS[pos]
+                else ordinal(pos)
                 for pos in tournament.positions]
             yield side, positions

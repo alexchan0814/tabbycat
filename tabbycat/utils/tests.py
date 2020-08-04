@@ -1,20 +1,21 @@
-from contextlib import contextmanager
 import json
 import logging
+from contextlib import contextmanager
+from unittest import expectedFailure
 
-from django.contrib.auth import get_user_model
-from django.core.cache import cache
-from django.urls import reverse
-from django.test import Client, tag, TestCase
+from django.contrib.auth import get_user, get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.core.cache import cache
+from django.test import Client, tag, TestCase
+from django.urls import reverse
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 
 from draw.models import DebateTeam
-from tournaments.models import Tournament
 from participants.models import Adjudicator, Institution, Speaker, Team
+from tournaments.models import Tournament
+from utils.misc import add_query_string_parameter, reverse_tournament
 from venues.models import Venue
-from utils.misc import reverse_tournament
 
 logger = logging.getLogger(__name__)
 
@@ -75,17 +76,16 @@ class CompletedTournamentTestMixin:
         return self.client.get(url)
 
     def assertResponseOK(self, response):  # noqa: N802
-        try:
-            self.assertEqual(response.status_code, 200)
-        except:
-            self.fail("%s raised exception unexpectedly" % self.view_name)
+        if response.status_code in [301, 302]:
+            self.fail("View %r gave response with status code %d, redirecting "
+                      "to %s (expected 200)" %
+                      (self.view_name, response.status_code, response.url))
+        elif response.status_code != 200:
+            self.fail("View %r gave response with status code %d (expected 200)" %
+                      (self.view_name, response.status_code))
 
     def assertResponsePermissionDenied(self, response):  # noqa: N802
         self.assertEqual(response.status_code, 403)
-
-    def assertResponseRedirect(self, response, url):  # noqa: N802
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url.split('?', 1)[0], url)
 
 
 class SingleViewTestMixin(CompletedTournamentTestMixin):
@@ -99,7 +99,8 @@ class SingleViewTestMixin(CompletedTournamentTestMixin):
 
     def get_response(self):
         kwargs = self.get_view_reverse_kwargs()
-        return super().get_response(self.view_name, **kwargs)
+        response = super().get_response(self.view_name, **kwargs)
+        return response
 
 
 class TournamentViewSimpleLoadTestMixin(SingleViewTestMixin):
@@ -111,6 +112,10 @@ class TournamentViewSimpleLoadTestMixin(SingleViewTestMixin):
 
 class AuthenticatedTournamentViewSimpleLoadTextMixin(SingleViewTestMixin):
 
+    def authenticate(self):
+        raise NotImplementedError
+
+    @expectedFailure
     def test_authenticated_response(self):
         self.authenticate()
         response = self.get_response()
@@ -119,23 +124,39 @@ class AuthenticatedTournamentViewSimpleLoadTextMixin(SingleViewTestMixin):
     def test_unauthenticated_response(self):
         self.client.logout()
         response = self.get_response()
-        self.assertResponseRedirect(response, reverse('login'))
+        target_url = self.reverse_url(self.view_name, **self.get_view_reverse_kwargs())
+        login_url = reverse('login')
+        expected_url = add_query_string_parameter(login_url, 'next', target_url)
+        self.assertRedirects(response, expected_url)  # in django.test.SimpleTestCase
 
 
 class AssistantTournamentViewSimpleLoadTestMixin(AuthenticatedTournamentViewSimpleLoadTextMixin):
-    """ For testing that admin pages resolve """
+    """Mixin for testing that assistant pages resolve when user is logged in,
+    and don't when user is logged out."""
 
     def authenticate(self):
-        get_user_model().objects.create_user('test_assistant', 'test@t.org', 'test')
-        self.client.login(username='test_assistant', password='test')
+        user, _ = get_user_model().objects.get_or_create(username='test_assistant')
+        self.client.force_login(user)
+
+        # Double-check authentication, raise error if it looks wrong
+        if not get_user(self.client).is_authenticated:
+            raise RuntimeError("User authentication failed")
 
 
 class AdminTournamentViewSimpleLoadTestMixin(AuthenticatedTournamentViewSimpleLoadTextMixin):
-    """ For testing that assistant pages resolve """
+    """Mixin for testing that admin pages resolve when user is logged in, and
+    don't when user is logged out."""
 
     def authenticate(self):
-        get_user_model().objects.create_superuser('test_admin', 'test@t.org', 'test')
-        self.client.login(username='test_admin', password='test')
+        user, _ = get_user_model().objects.get_or_create(username='test_admin', is_superuser=True)
+        self.client.force_login(user)
+
+        # Double-check authentication, raise error if it looks wrong
+        user = get_user(self.client)
+        if not user.is_authenticated:
+            raise RuntimeError("User authentication failed")
+        if not user.is_superuser:
+            raise RuntimeError("User is not a superuser")
 
 
 class ConditionalTournamentTestsMixin(SingleViewTestMixin):
@@ -167,7 +188,8 @@ class ConditionalTournamentTestsMixin(SingleViewTestMixin):
             with self.subTest(value=value):
                 self.tournament.preferences[self.view_toggle_preference] = value
                 with self.assertLogs('tournaments.mixins', logging.WARNING):
-                    response = self.get_response()
+                    with suppress_logs('django.request', logging.WARNING):
+                        response = self.get_response()
                 self.assertResponsePermissionDenied(response)
 
 
@@ -235,7 +257,7 @@ class BaseMinimalTournamentTestCase(TestCase):
                     Speaker.objects.create(team=t, name="Speaker%s%s%s" % (i, j, k))
             for j in range(2):
                 Adjudicator.objects.create(tournament=self.tournament, institution=ins,
-                                           name="Adjudicator%s%s" % (i, j), test_score=0)
+                                           name="Adjudicator%s%s" % (i, j), base_score=0)
 
         for i in range(8):
             Venue.objects.create(name="Venue %s" % i, priority=i, tournament=self.tournament)
@@ -258,7 +280,7 @@ class SeleniumTestCase(StaticLiveServerTestCase):
         super().setUpClass()
         # Capabilities provide access to JS console
         capabilities = DesiredCapabilities.CHROME
-        capabilities['loggingPrefs'] = {'browser':'ALL'}
+        capabilities['loggingPrefs'] = {'browser': 'ALL'}
         cls.selenium = WebDriver(desired_capabilities=capabilities)
         cls.selenium.implicitly_wait(10)
 

@@ -41,10 +41,6 @@ metrics that will be shown in the team standings, but not used to rank teams.
       for wins, and differs only in column labelling. For BP, this is 3 points
       for a first, 2 for a second, 1 for a third and 0 for a fourth.
 
-  * - Points (2/1/0)
-    - How many points the team has, where teams earn 2 points for a win, 1 point
-      for a loss and 0 points for a forfeit.
-
   * - Total speaker score
     - The sum of all speaker scores attained in all debates.
 
@@ -71,11 +67,14 @@ metrics that will be shown in the team standings, but not used to rank teams.
     - The average margin over all debates the team has had, not counting debates
       where they or their opponents forfeited.
 
-  * - Draw strength
+  * - Draw strength by wins
     - The sum of the number of wins of every team this team has faced so far.
 
-      This is also known in some circuits as *win points*, *opp wins* or *opp
-      strength*.
+      This is also known in some circuits as *win points*, *opponent wins* or
+      *opponent strength*.
+
+  * - Draw strength by speaker score
+    - The sum of speaker scores of every team this team has faced so far.
 
   * - Votes/ballots carried
     - The number of adjudicators that gave this team a win across all of their
@@ -95,6 +94,12 @@ metrics that will be shown in the team standings, but not used to rank teams.
     - The number of debates in which the team came second. Only makes sense for
       British Parliamentary.
 
+  * - Number of pullups before this round
+    - The number of times the team has been pulled up as part of
+      :ref:`draw generation <draw-generation>`. You probably wouldn't use this
+      as a metric to rank teams, but you may wish to display it as an
+      "extra metric" in the team standings for transparency.
+
   * - Who-beat-whom
     - If there are exactly two teams tied on all metrics earlier in the
       precedence than this one, then check if the teams have faced each other.
@@ -107,11 +112,6 @@ metrics that will be shown in the team standings, but not used to rank teams.
       This metric can be specified multiple times. Each time who-beat-whom
       occurs, it applies to all the metrics earlier in the precedence than the
       occurrence in question.
-
-  * - Who-beat-whom (in divisions)
-    - As for who-beat-whom, but only compares for teams in the same division.
-      That is, the metric applies whenever there are exactly two teams from the
-      same division exactly tied.
 
 
 Speaker standings rules

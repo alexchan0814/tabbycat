@@ -5,16 +5,14 @@ This script is compatible with both Python 2.7 and Python 3.4 (and later)."""
 import argparse
 import platform
 import re
+import shutil
 import subprocess
 import sys
 
 try:
     from django.core.management.utils import get_random_secret_key
 except ImportError:
-    try:
-        from secrets import SystemRandom
-    except ImportError:  # for Python 3.5 compatibility
-        from random import SystemRandom
+    from random import SystemRandom
 
     def get_random_secret_key():
         chars = 'abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*(-_=+)'
@@ -74,13 +72,13 @@ import_tournament_group = parser.add_argument_group(
     "importtournament options, run the importtournament command separately instead.")
 import_tournament_group.add_argument(
     '-s', '--slug', type=str, action='store', default=None, dest="tournament_slug",
-    help='Override tournament slug. (Default: use name of directory.)'),
+    help='Override tournament slug. (Default: use name of directory.)')
 import_tournament_group.add_argument(
     '--name', type=str, action='store', default=None, dest="tournament_name",
-    help='Override tournament name. (Default: use name of directory.)'),
+    help='Override tournament name. (Default: use name of directory.)')
 import_tournament_group.add_argument(
     '--short-name', type=str, action='store', default=None, dest="tournament_short_name",
-    help='Override tournament short name. (Default: use name of directory.)'),
+    help='Override tournament short name. (Default: use name of directory.)')
 
 args = parser.parse_args()
 
@@ -146,6 +144,16 @@ def get_git_push_spec():
         print_yellow("Could not determine current git commit or branch. Use --git-branch to specify a git branch to push.")
     exit(1)
 
+
+# Check that Heroku is installed (shutil.which requires Python 3.3+, otherwise
+# skip the check, it'll crash on the next command without a friendly message)
+if sys.version_info >= (3, 3) and shutil.which("heroku") is None:
+    print_yellow("Error: heroku not found.")
+    print("You'll need to install the Heroku CLI before you can use this script.")
+    print("Go to https://devcenter.heroku.com/articles/heroku-cli, or search the")
+    print("internet for \"Heroku CLI\".")
+    exit(1)
+
 # Create the app with addons
 addons = ["papertrail", "sendgrid:starter", "heroku-postgresql:%s" % args.pg_plan, "rediscloud:30"]
 command = ["heroku", "apps:create"]
@@ -158,7 +166,7 @@ if addons:
 if args.urlname != "-":
     command.append(args.urlname)
 output = get_output_from_command(command)
-match = re.search("https://([\w_-]+)\.herokuapp\.com/\s+\|\s+(https://git.heroku.com/[\w_-]+.git)", output)
+match = re.search(r"https://([\w_-]+)\.herokuapp\.com/\s+\|\s+(https://git.heroku.com/[\w_-]+.git)", output)
 urlname = match.group(1)
 heroku_url = match.group(2)
 

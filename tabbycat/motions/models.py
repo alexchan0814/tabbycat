@@ -17,13 +17,8 @@ class Motion(models.Model):
     info_slide = models.TextField(
         verbose_name=_("info slide"), default="", blank=True,
         help_text=_("The information slide for this topic; if it has one"))
-    flagged = models.BooleanField(default=False,
-        verbose_name=_("flagged"),
-        help_text=_("For WADL: Allows for particular motions to be flagged as contentious"))
     round = models.ForeignKey('tournaments.Round', models.CASCADE,
         verbose_name=_("round"))
-    divisions = models.ManyToManyField('divisions.Division', blank=True,
-        verbose_name=_("divisions"))
 
     class Meta:
         ordering = ('seq', )
@@ -32,6 +27,10 @@ class Motion(models.Model):
 
     def __str__(self):
         return self.text
+
+    def as_iterable(self):
+        """For DRF; stopgap for many-to-many"""
+        return [self]
 
 
 class DebateTeamMotionPreference(models.Model):

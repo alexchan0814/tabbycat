@@ -1,79 +1,24 @@
 import json
 
 import qrcode
-from qrcode.image import svg
-
-from django.db.models import Q
+from django.contrib.humanize.templatetags.humanize import ordinal
 from django.utils.translation import gettext as _
 from django.views.generic.base import TemplateView
+from qrcode.image import svg
 
 from adjfeedback.models import AdjudicatorFeedbackQuestion
 from adjfeedback.utils import expected_feedback_targets
 from checkins.models import DebateIdentifier
 from checkins.utils import create_identifiers
-from draw.models import Debate, DebateTeam
+from draw.models import DebateTeam
 from options.utils import use_team_code_names
-from participants.models import Person
+from participants.models import Adjudicator, Speaker
 from results.utils import side_and_position_names
 from tournaments.mixins import (CurrentRoundMixin, OptionalAssistantTournamentPageMixin,
                                 RoundMixin, TournamentMixin)
-from tournaments.models import Tournament
 from utils.misc import reverse_tournament
 from utils.mixins import AdministratorMixin
-from venues.models import VenueCategory
-
-
-class MasterSheetsListView(AdministratorMixin, RoundMixin, TemplateView):
-    template_name = 'division_sheets_list.html'
-
-    def get_context_data(self, **kwargs):
-        kwargs['standings'] = VenueCategory.objects.all()
-        kwargs['venue_categories'] = VenueCategory.objects.all()
-        return super().get_context_data(**kwargs)
-
-
-class MasterSheetsView(AdministratorMixin, RoundMixin, TemplateView):
-    template_name = 'master_sheets_view.html'
-
-    def get_context_data(self, **kwargs):
-        venue_category_id = self.kwargs['venue_category_id']
-        base_venue_category = VenueCategory.objects.get(id=venue_category_id)
-        active_tournaments = Tournament.objects.filter(active=True)
-        for tournament in list(active_tournaments):
-            tournament.debates = Debate.objects.select_related(
-                'division', 'division__venue_category', 'round',
-                'round__tournament').filter(
-                    # All Debates, with a matching round, at the same venue category name
-                    round__seq=self.round.seq,
-                    round__tournament=tournament,
-                    # Hack - remove when venue category are unified
-                    division__venue_category__name=base_venue_category.name
-            ).order_by('round', 'division__venue_category__name', 'division')
-
-        kwargs['base_venue_category'] = base_venue_category
-        kwargs['active_tournaments'] = active_tournaments
-        return super().get_context_data(**kwargs)
-
-
-class RoomSheetsView(AdministratorMixin, RoundMixin, TemplateView):
-    template_name = 'room_sheets_view.html'
-
-    def get_context_data(self, **kwargs):
-        venue_category_id = self.kwargs['venue_category_id']
-        base_venue_category = VenueCategory.objects.get(id=venue_category_id)
-        venues_list = []
-
-        # Get a unique list of venue names (avoid getting duplicates across tournaments)
-        for venue in set(base_venue_category.venues.order_by('name').values_list('name', flat=True)):
-            venues_list.append({'name': venue, 'debates': []})
-            # All Debates, with a matching round, at the same venue category
-            venues_list[-1]['debates'] = Debate.objects.filter(
-                round__seq=self.round.seq, venue__name=venue).order_by('round__tournament__seq').all()
-            print(venues_list[-1])
-
-        kwargs['base_venue_category'] = base_venue_category
-        kwargs['venues'] = venues_list
-        return super().get_context_data(**kwargs)
+from venues.serializers import VenueSerializer
 
 
 class BasePrintFeedbackFormsView(RoundMixin, TemplateView):
@@ -87,7 +32,7 @@ class BasePrintFeedbackFormsView(RoundMixin, TemplateView):
             default_scale_info = AdjudicatorFeedbackQuestion(
                 text=self.tournament.pref('feedback_introduction'), seq=0,
                 answer_type='comment', # Custom type just for print display
-                required=True, from_team=True, from_adj=True
+                required=True, from_team=True, from_adj=True,
             )
             default_questions.append(default_scale_info.serialize())
 
@@ -96,7 +41,7 @@ class BasePrintFeedbackFormsView(RoundMixin, TemplateView):
             answer_type=AdjudicatorFeedbackQuestion.ANSWER_TYPE_INTEGER_SCALE,
             required=True, from_team=True, from_adj=True,
             min_value=self.tournament.pref('adj_min_score'),
-            max_value=self.tournament.pref('adj_max_score')
+            max_value=self.tournament.pref('adj_max_score'),
         )
         default_questions.append(default_scale_question.serialize())
 
@@ -118,14 +63,14 @@ class BasePrintFeedbackFormsView(RoundMixin, TemplateView):
             source_n = source.short_name
 
         return {
-            'venue': venue.serialize() if venue else '',
+            'venue': VenueSerializer(venue).data if venue else '',
             'authorInstitution': source.institution.code if source.institution else _("Unaffiliated"),
             'author': source_n, 'authorPosition': source_p,
             'target': target.name, 'targetPosition': target_p,
         }
 
     def get_team_feedbacks(self, debate, team):
-        if len(debate.adjudicators) is 0:
+        if len(debate.adjudicators) == 0:
             return []
 
         team_paths = self.tournament.pref('feedback_from_teams')
@@ -267,6 +212,7 @@ class BasePrintScoresheetsView(RoundMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         kwargs['ballots'] = json.dumps(self.get_ballots_dicts())
+        kwargs['ordinals'] = [ordinal(i) for i in range(1, 5)]
         motions = self.round.motion_set.order_by('seq')
         kwargs['motions'] = json.dumps([{'seq': m.seq, 'text': m.text} for m in motions])
         kwargs['use_team_code_names'] = use_team_code_names(self.tournament, False)
@@ -281,7 +227,7 @@ class AssistantPrintScoresheetsView(CurrentRoundMixin, OptionalAssistantTourname
     assistant_page_permissions = ['all_areas']
 
 
-class PrintableRandomisedURLs(TournamentMixin, AdministratorMixin, TemplateView):
+class BasePrintableRandomisedURLs(TournamentMixin, AdministratorMixin, TemplateView):
 
     template_name = 'randomised_url_sheets.html'
 
@@ -296,18 +242,25 @@ class PrintableRandomisedURLs(TournamentMixin, AdministratorMixin, TemplateView)
 
         return participants
 
+    def get_participants_for_type(self):
+        raise NotImplementedError("subclasses must implement get_participants_for_type()")
+
     def get_context_data(self, **kwargs):
-
-        if not self.tournament.pref('share_adjs'):
-            participants = self.tournament.participants.filter(url_key__isnull=False)
-        else:
-            participants = Person.objects.filter(
-                Q(speaker__team__tournament=self.tournament) | Q(adjudicator__tournament__isnull=True) & Q(url_key__isnull=False))
-
-        participants_array = list(participants.select_related('speaker', 'speaker__team', 'adjudicator__institution', 'adjudicator')
-            .values('name', 'speaker__team__short_name', 'adjudicator__institution__code', 'url_key'))
-        kwargs['parts'] = self.add_urls(participants_array)
-
+        participants_array = self.get_participants_for_type()
+        kwargs['participants'] = self.add_urls(participants_array)
         kwargs['exists'] = self.tournament.participants.filter(url_key__isnull=False).exists()
-
         return super().get_context_data(**kwargs)
+
+
+class PrintableRandomisedURLsForTeams(BasePrintableRandomisedURLs):
+
+    def get_participants_for_type(self):
+        participants = Speaker.objects.filter(team__tournament=self.tournament, url_key__isnull=False)
+        return list(participants.select_related('team').values('name', 'team__short_name', 'url_key'))
+
+
+class PrintableRandomisedURLsForAdjudicators(BasePrintableRandomisedURLs):
+
+    def get_participants_for_type(self):
+        participants = Adjudicator.objects.filter(tournament=self.tournament, url_key__isnull=False)
+        return list(participants.select_related('institution').values('name', 'institution__code', 'url_key'))
